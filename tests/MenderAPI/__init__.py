@@ -15,7 +15,9 @@ logging.info("Setting gateway as: " + gateway)
 import admission
 import deployments
 import artifacts
+import inventory
 
 adm = admission.Admission()
 deploy = deployments.Deployments()
 image = artifacts.Artifacts()
+inv = inventory.Inventory()
