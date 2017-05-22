@@ -309,3 +309,21 @@ pushing a new branch if it lacks a branch of this name. The intended usage of
 this command is to create a new 1.1.x branch off of master when 1.1.0 is to be
 released. This command is automatically invoked when the script starts, but one
 can say no if it's not desired.
+
+
+## Verifying tag references
+
+This section describes the `--verify-tag-references` option. What it does is to
+check that for each version recorded in one of the YAML files in the list below,
+the currently checked out version is the same. The motivation for providing this
+check is to make sure releases are always listing the version we build, so that:
+
+* there is no confusion among users as to which versions belong together.
+
+* we can safely query the versions recorded in the YAML files to provide branch
+  names for upload, for example.
+
+List of YAML files:
+
+* `docker-compose*.yml`
+* `other-components.yml` (non-Docker components)

@@ -171,7 +171,8 @@ def docker_compose_files_list(dir):
     """Return all docker-compose*.yml files in given directory."""
     list = []
     for entry in os.listdir(dir):
-        if entry.startswith("docker-compose") and entry.endswith(".yml"):
+        if (entry == "other-components.yml"
+            or (entry.startswith("docker-compose") and entry.endswith(".yml"))):
             list.append(os.path.join(dir, entry))
     return list
 
@@ -1050,7 +1051,8 @@ def do_integration_versions_including(args):
         files = execute_git(None, git_dir, ["ls-tree", "--name-only", candidate],
                             capture=True).strip().split('\n')
         for filename in files:
-            if not filename.endswith(".yml"):
+            if (entry != "other-components.yml"
+                and not (entry.startswith("docker-compose") and filename.endswith(".yml"))):
                 continue
 
             output = execute_git(None, git_dir, ["show", "%s:%s" % (candidate, filename)],
@@ -1071,6 +1073,45 @@ def do_integration_versions_including(args):
     for match in matches:
         print(match)
 
+def do_verify_tag_references(args):
+    int_dir = integration_dir()
+    data = get_docker_compose_data(int_dir)
+    problem = False
+
+    for repo in REPOS.values():
+        # integration is not checked, since the current checkout records the
+        # version of that one.
+        if repo.git == "integration":
+            continue
+
+        path = os.path.normpath(os.path.join(int_dir, "..", repo.git))
+
+        try:
+            tag = execute_git(None, path, ["symbolic-ref", "--short", "HEAD"], capture=True, capture_stderr=True)
+            # If the above didn't produce an exception, then we are on a branch.
+            # Skip the check in this case, since branches are not expected to
+            # always have up to date version references.
+            continue
+        except subprocess.CalledProcessError:
+            # We are not on a branch. Continue to next section.
+            pass
+
+        image = data['services'][repo.container]['image']
+        version = image[image.rfind(':')+1:]
+
+        # Since we already know we are not on a branch, then we should be on a
+        # tag, so the next call should always succeed.
+        tag = execute_git(None, path, ["describe", "--exact", "HEAD"], capture=True, capture_stderr=True)
+
+        if tag != version:
+            print("%s: Checked out tag '%s' does not match tag recorded in yml files: '%s' (from image tag: '%s')"
+                  % (repo.git, tag, version, image))
+            problem = True
+
+    if problem:
+        print("\nMake sure all *.yml files contain the correct versions.")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--version-of", dest="version_of", metavar="SERVICE",
@@ -1088,6 +1129,13 @@ def main():
                         help="Simulate (don't do) pushes")
     parser.add_argument("-n", "--dry-run", action="store_true",
                         help="Don't take any action at all")
+    parser.add_argument("--verify-tag-references", action="store_true",
+                        help="Checks that tag references in the yaml files match the tags that "
+                        + "are checked out in Git. This is intended to catch cases where "
+                        + "references to images or tools are out of date. It requires checked-out "
+                        + "repositories to exist next to the integration repository, and is "
+                        + "usually used only in builds. If the checked out version of a repository "
+                        + "is a branch, not a tag, then the check is skipped.")
     args = parser.parse_args()
 
     # Check conflicting options.
@@ -1114,6 +1162,8 @@ def main():
         do_integration_versions_including(args)
     elif args.release:
         do_release()
+    elif args.verify_tag_references:
+        do_verify_tag_references(args)
     else:
         parser.print_help()
         sys.exit(1)
