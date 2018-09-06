@@ -18,7 +18,7 @@ IGNORE_REPOS = [ 'mender-conductor-enterprise' ]
 DIRS = [os.path.join(os.path.dirname(sys.argv[0]), "../..")]
 
 # Candidates for license files.
-LICENSE_CANDIDATES = [ "LICENSE", "LICENCE", "LICENSE.txt", "COPYING" ]
+LICENSE_CANDIDATES = [ "LICENSE", "LICENCE", "LICENSE.txt", "LICENSE.md", "COPYING" ]
 
 # A dictionary of the licenses we have collected, key is module, value is text.
 LICENSES = {}
@@ -189,6 +189,10 @@ if parsed.CALLED_FROM_RELEASE_TOOL:
     CALLED_FROM_RELEASE_TOOL = True
 
 
+class LicenseError(Exception):
+    pass
+
+
 def select_license_text(license, author):
     if KNOWN_LICENSES[license].find('%s') == -1:
         return KNOWN_LICENSES[license]
@@ -275,6 +279,9 @@ def process_node_module(modules_path, module):
         add_file_to_licenses("www.npmjs.com/package/%s" % module,
                              license_file)
     else:
+        if module == "@babel":
+            print("WARNING Ommitting @babel")
+            return
         data = json.load(open(os.path.join(modules_path, module, "package.json")))
         license_url = None
         # node modules are inconsistent in their specification of license, so
@@ -298,17 +305,21 @@ def process_node_module(modules_path, module):
             license_url = data['licenses'][0].get('url')
 
         else:
-            raise Exception("No license key inside package.json for %s" % module)
+            raise LicenseError("No license key inside package.json for %s" % module)
 
         try:
-            author = data.get('author')
-            if type(author) is dict:
-                author = author['name']
+            authors = data.get('authors')
+            if authors is not None:
+                author = ", ".join(authors)
+            else:
+                author = data.get('author')
+                if type(author) is dict:
+                    author = author['name']
 
             if author is None:
                 author = data['_npmUser']['name']
         except KeyError:
-            raise Exception("No author data in package.json for %s" % module)
+            raise LicenseError("No author data in package.json for %s" % module)
 
         if license_url is None:
             add_to_licenses("www.npmjs.com/package/%s" % module,
@@ -318,7 +329,7 @@ def process_node_module(modules_path, module):
 def do_go_repo(repopath):
     lic_chksums = os.path.join(repopath, "LIC_FILES_CHKSUM.sha256")
     if not os.path.exists(lic_chksums):
-        raise Exception("No license checksums found at %s" % lic_chksums)
+        raise LicenseError("No license checksums found at %s" % lic_chksums)
 
     process_chksum_file(lic_chksums)
 
@@ -335,23 +346,10 @@ def do_gui_repo(repopath):
         if module in ['.bin']:
             continue
 
-        if module == "indexof":
-            # Exception: This one doesn't come with a valid license, but it
-            # is MIT according to web page.
-            add_to_licenses("www.npmjs.com/package/%s" % module,
-                            select_license_text("MIT", "indexof"))
-            continue
-        elif module == "string-hash":
-            # Exception: This one has the license listed inside the
-            # README.md file, together with other stuff.
-            h = hashlib.md5()
-            h.update(open(os.path.join(modules_path, module, "README.md"), "rb").read())
-            assert(h.hexdigest() == "b0bd7b52b5b02d7465184cfe66e66d32")
-            add_to_licenses("www.npmjs.com/package/%s" % module,
-                            select_license_text("Public Domain", "string-hash"))
-            continue
-
-        process_node_module(modules_path, module)
+        try:
+            process_node_module(modules_path, module)
+        except LicenseError:
+            handle_npm_exceptions(modules_path, module)
 
     # Node modules that are sub modules we don't care about, they are
     # covered by their top license.
@@ -365,6 +363,81 @@ def do_gui_repo(repopath):
                 LICENSE_FILES_COVERED[full_path] = True
 
     verify_no_license_leftovers(repopath)
+
+def handle_npm_exceptions(modules_path, module):
+    if module == "indexof":
+        # Exception: This one doesn't come with a valid license, but it
+        # is MIT according to web page.
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        select_license_text("MIT", "indexof"))
+        return
+
+    elif module.startswith("babel-"):
+        package_json = json.load(open(os.path.join(modules_path, module, "package.json")))
+        valid_versions = ["6.18.0", "6.22.0", "6.23.0", "6.24.1", "6.25.0", "6.26.0", "6.26.2"]
+        assert package_json['version'] in valid_versions, \
+            "Exception was made for module '%s' for these specific versions (%s), should be rechecked" \
+            % (module, ", ".join(valid_versions))
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        # Author name taken from license on Github.
+                        select_license_text("MIT", "Sebastian McKenzie <sebmck@gmail.com>"))
+        return
+
+    elif module == "react-tools":
+        package_json = json.load(open(os.path.join(modules_path, module, "package.json")))
+        valid_versions = ["0.13.3"]
+        assert package_json['version'] in valid_versions, \
+            "Exception was made for module '%s' for these specific versions (%s), should be rechecked" \
+            % (module, ", ".join(valid_versions))
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        # Author name taken from license on Github.
+                        select_license_text("BSD-3-Clause", "Facebook, Inc."))
+        return
+
+    elif module == "string-hash":
+        # Exception: This one has the license listed inside the
+        # README.md file, together with other stuff.
+        h = hashlib.md5()
+        h.update(open(os.path.join(modules_path, module, "README.md"), "rb").read())
+        assert(h.hexdigest() == "b0bd7b52b5b02d7465184cfe66e66d32")
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        select_license_text("Public Domain", "string-hash"))
+        return
+
+    elif module == "chalk":
+        h = hashlib.md5()
+        h.update(open(os.path.join(modules_path, module, "readme.md"), "rb").read())
+        assert(h.hexdigest() == "332887a23a9e37a40797b472e7d1f95d")
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        select_license_text("MIT", "Sindre Sorhus"))
+        return
+
+    elif module == "esutils":
+        h = hashlib.md5()
+        h.update(open(os.path.join(modules_path, module, "README.md"), "rb").read())
+        assert(h.hexdigest() == "3301cf9390458332ac3961fc05d73e2c")
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        select_license_text("MIT", "Yusuke Suzuki"))
+        return
+
+    elif module == "multipipe":
+        h = hashlib.md5()
+        h.update(open(os.path.join(modules_path, module, "Readme.md"), "rb").read())
+        assert(h.hexdigest() == "112617ed0649ff7410c9fe31df4bd1dc")
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        select_license_text("MIT", "Segment.io Inc. and Julian Gruber"))
+        return
+
+    elif module == "cached-path-relative":
+        h = hashlib.md5()
+        h.update(open(os.path.join(modules_path, module, "Readme.md"), "rb").read())
+        assert(h.hexdigest() == "1c72f1a6953f9ead2c65e12c955a0454")
+        add_to_licenses("www.npmjs.com/package/%s" % module,
+                        select_license_text("MIT", "Weo.io"))
+        return
+
+    raise LicenseError("No exception found for module '%s'. Must add one or rely on generic handling"
+                       % module)
 
 def check_base_license(repopath):
     # Use the license in the integration repository (this repository) as a basis
@@ -414,7 +487,7 @@ def verify_no_license_leftovers(location):
     for path, dirs, files in os.walk(location):
         for file in files:
             if file in LICENSE_CANDIDATES and not LICENSE_FILES_COVERED.get(os.path.join(path, file)):
-                raise Exception("Found unhandled license in %s" % os.path.join(path, file))
+                raise LicenseError("Found unhandled license in %s" % os.path.join(path, file))
 
 do_repos()
 
