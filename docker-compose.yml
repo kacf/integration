@@ -5,7 +5,7 @@ services:
     # mender-deployments
     #
     mender-deployments:
-        image: mendersoftware/deployments:1.6.0
+        image: mendersoftware/deployments:update_modules_demo
         extends:
             file: common.yml
             service: mender-base
