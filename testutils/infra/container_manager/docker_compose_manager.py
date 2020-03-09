@@ -69,12 +69,11 @@ class DockerComposeNamespace(DockerNamespace):
         COMPOSE_FILES_PATH + "/docker-compose.mt.client.yml",
     ]
     SMTP_FILES = [
-        COMPOSE_FILES_PATH + "/extra/smtp-testing/conductor-workers-smtp-test.yml",
         COMPOSE_FILES_PATH + "/extra/recaptcha-testing/tenantadm-test-recaptcha-conf.yml",
     ]
 
-    NUM_SERVICES_OPENSOURCE = 14
-    NUM_SERVICES_ENTERPRISE = 18
+    NUM_SERVICES_OPENSOURCE = 11
+    NUM_SERVICES_ENTERPRISE = 13
 
     def __init__(self, name, extra_files=[]):
         DockerNamespace.__init__(self, name)
@@ -243,15 +242,6 @@ class DockerComposeNamespace(DockerNamespace):
             raise SystemExit("expected one instance of api-gateway running, but found: %d instance(s)" % len(gateway))
 
         return gateway[0]
-
-    def get_mender_conductor(self):
-        """Returns IP address of mender-conductor service"""
-        conductor = self.get_ip_of_service("mender-conductor")
-
-        if len(conductor) != 1:
-            raise SystemExit("expected one instance of mender-conductor running, but found: %d instance(s)" % len(conductor))
-
-        return conductor[0]
 
 class DockerComposeStandardSetup(DockerComposeNamespace):
     def __init__(self, name, num_clients=1):
